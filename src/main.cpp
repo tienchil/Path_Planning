@@ -197,9 +197,8 @@ int main() {
   	map_waypoints_dy.push_back(d_y);
   }
 
-  // Start in lane 1
+  // Start in lane
   int lane = 1;
-
   double ref_val = 0.0; // reference target velocity (mph)
 
   h.onMessage([&ref_val, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy, &lane](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
@@ -246,35 +245,74 @@ int main() {
             }
 
             bool too_close = false;
+            int change_left = 0;
+            int change_right = 0;
+            double front_speed = 0.0;
+
 
             // find ref_v to use
             for (int i = 0; i < sensor_fusion.size(); i++) {
               // car is in my lane
               float d = sensor_fusion[i][6];
+              double vx = sensor_fusion[i][3];
+              double vy = sensor_fusion[i][4];
+              double check_speed = sqrt(vx*vx+vy*vy);
+              double check_car_s = sensor_fusion[i][5];
 
+              check_car_s += (double)prev_size*0.02*check_speed;
+
+              // Current Lane
               if (d < (2+4*lane+2) && d > (2+4*lane-2)) {
-                double vx = sensor_fusion[i][3];
-                double vy = sensor_fusion[i][4];
-                double check_speed = sqrt(vx*vx+vy*vy);
-                double check_car_s = sensor_fusion[i][5];
-
-                check_car_s += (double)prev_size*0.02*check_speed;
-                // check s values greater than mine and s gap
+                // The car in front is too close
                 if ((check_car_s > car_s) && ((check_car_s-car_s) < 30)) {
-                  // ref_val = 29.5; // mph
                   too_close = true;
                 }
+                front_speed = check_speed;
+              }
 
+              // Right Lane
+              if (d < (2+4*lane+6) && d > (2+4*lane+2)) {
+                if (check_car_s > (car_s+30) || check_car_s < (car_s-30)) {
+                  change_right += 1;
+                } else {
+                  change_right -= 2;
+                }
+              }
+
+              // Left Lane
+              if (d > 0 && d < (2+4*lane-2) && d > (2+4*lane-6)) {
+                if (check_car_s > (car_s+30) || check_car_s < (car_s-30)) {
+                  change_left += 1;
+                } else {
+                  change_left -= 2;
+                }
               }
             }
+            // cout << "car_d= " << car_d << endl;
+            // if (abs(car_d - (2.0+4.0*lane)) > 1.0) {
+            //   change_left = 0;
+            //   change_right = 0;
+            // }
 
+
+            // Change lanes and decrease speed
             if (too_close) {
+              // cout << "Speed: " << car_speed << endl;
               ref_val -= 0.224;
+              // cout << change_left << "\t" << change_right << endl;
+              
+              if (change_left >= 3 && lane > 0) {
+                lane -= 1;
+              } else if (change_right >= 3 && lane <= 2) {
+                lane += 1;
+              }
+
             } else if (ref_val < 49.5) {
               ref_val += 0.224;
             }
 
-
+            change_left = 0;
+            change_right = 0;
 
             // Create a list of widely spaced (x, y) waypoints 30m apart
             // interpolate these points with a spline
